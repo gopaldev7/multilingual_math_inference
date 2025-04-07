@@ -1,0 +1,27 @@
+{
+    "input_file_path": "data/gsm8k_translated_dataset_100.json",
+    "output_file_path": "data/gsm8k_inference_results_all_models.json",
+    "models": [
+      {"name": "Llama-2 Chat 7B", "path": "meta-llama/Llama-2-7b-chat-hf"},
+      {"name": "WizardLM 7B", "path": "WizardLMTeam/WizardMath-7B-V1.1"},
+      {"name": "Mistral 7B", "path": "mistralai/Mistral-7B-Instruct-v0.3"},
+      {"name": "Falcon 7B", "path": "tiiuae/falcon-7b-instruct"},
+      {"name": "OpenLLaMA 7B", "path": "openlm-research/open_llama_7b_v2"}
+    ],
+    "prompt_template": "Answer the following math problem step-by-step:\n\n{question}\n\nLet's think step-by-step.",
+    "max_tokens": 256,
+    "use_quantization": false,
+    "local_model_dir": "models/",
+    "batch_size": 16,
+
+    "dataset_name": "TaiMingLu/Multilingual-Benchmark",
+    "dataset_config": "GSM",
+    "split": "train",
+    "sample_limit": 100,
+    "output_file": "data/gsm8k_translated_dataset_100.json",
+    "max_retries": 3,
+    "sleep_interval": 2,
+
+    "back_translation_file" : "data/gsm8k_backtranslated_data_100.json"
+  }
+  

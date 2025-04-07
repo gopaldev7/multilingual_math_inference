@@ -1,0 +1,17 @@
+# Virtual environment
+llm-env/
+
+#data
+data/
+
+# Model folders
+models/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Mac/Windows system files
+.DS_Store
+Thumbs.db
+
