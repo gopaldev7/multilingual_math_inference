@@ -22,6 +22,13 @@
     "max_retries": 3,
     "sleep_interval": 2,
 
-    "back_translation_file" : "data/gsm8k_backtranslated_data_100.json"
+    "back_translation_file" : "data/gsm8k_backtranslated_data_100.json",
+    "sentence_transformer" : "sentence-transformers/all-MiniLM-L6-v2",
+    "extractor_model_path" : "google/flan-t5-large",
+
+    "check_translation_accuracy" : false,
+    "check_inference_accuracy" : true,
+    "inference_file" : "data/gsm8k_inference_results_all_models.json",
+    "inference_answers_file" : "data/inference_extracted_answers.json"
   }
   

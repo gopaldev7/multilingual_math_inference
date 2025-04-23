@@ -43,7 +43,7 @@ def back_translate_data(input_file: str, output_file: str, max_retries: int = 3,
         if sample_index not in backtrans_data:
             backtrans_data[sample_index] = {
                 "sample_index": sample_index,
-                "original_question": None,   # filled from the English record
+                "original_question": None, 
                 "back_translations": {}
             }
         
@@ -139,19 +139,14 @@ def save_translated_data(data: List[Dict], output_file: str) -> None:
     logger.info(f"Translated dataset saved to {output_file}")
 
 def main():
-    # Load configuration from config.json
     config = load_config("config.json")
     
-    # Initialize the translator.
     translator = Translator()
     
-    # Load dataset and extract English questions.
     samples, full_dataset = load_gsm8k_dataset(config)
     
-    # Translate all samples.
     translated_data = translate_samples(samples, full_dataset, translator, config)
     
-    # Save the translated dataset.
     save_translated_data(translated_data, config["output_file"])
 
 if __name__ == "__main__":

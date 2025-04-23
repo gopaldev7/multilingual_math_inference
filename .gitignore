@@ -4,6 +4,9 @@ llm-env/
 #data
 data/
 
+#results
+results/
+
 # Model folders
 models/
 

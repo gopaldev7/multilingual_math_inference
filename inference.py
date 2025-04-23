@@ -7,9 +7,7 @@ from typing import Any, Dict, List, Tuple
 from utils import *
 
 from accelerate import Accelerator
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Set up logging.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -23,36 +21,6 @@ def load_dataset(file_path: str) -> List[Dict[str, Any]]:
         data = json.load(f)
     logger.info(f"Loaded {len(data)} records from {file_path}")
     return data
-
-
-def download_and_load_model(local_model_dir: str, model_path: str, use_quantization: bool = False) -> Tuple[str, Any, Any]:
-    """
-    Download a model (if not already downloaded) and load the model and tokenizer.
-    Returns a tuple of (local_directory, model, tokenizer).
-    """
-    # Construct a local directory name.
-    local_dir = os.path.join(local_model_dir, model_path.replace("/", "_"))
-    if not os.path.exists(local_dir):
-        logger.info(f"Downloading model {model_path} to {local_dir}")
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            load_in_8bit=use_quantization,
-            device_map="auto",
-            torch_dtype=torch.float16
-        )
-        model.save_pretrained(local_dir)
-        tokenizer.save_pretrained(local_dir)
-    else:
-        logger.info(f"Loading model from local directory {local_dir}")
-        tokenizer = AutoTokenizer.from_pretrained(local_dir)
-        model = AutoModelForCausalLM.from_pretrained(
-            local_dir,
-            load_in_8bit=use_quantization,
-            device_map="auto",
-            torch_dtype=torch.float16
-        )
-    return local_dir, model, tokenizer
 
 
 def generate_inference(model: Any, tokenizer: Any, prompts: list, device: torch.device, max_tokens: int = 256) -> list:
@@ -79,7 +47,7 @@ def run_inference_for_model(
     batch_size: int = 16
 ) -> List[Dict[str, Any]]:
     """
-    Download/load the specified model, run inference on dataset records (for records with sample_index < 50),
+    Download/load the specified model, run inference on dataset records,
     and store the results under 'inference_results' in each record.
     """
     model_name = model_info["name"]
@@ -92,7 +60,6 @@ def run_inference_for_model(
     batch_indices = []
 
     for idx, record in enumerate(dataset):
-        if record.get("sample_index", float('inf')) < 50:
             question = record.get("translated_question")
             if not question:
                 record.setdefault("inference_results", {})[model_name] = None
@@ -100,7 +67,7 @@ def run_inference_for_model(
                 prompt = prompt_template.format(question=question)
                 batch_prompts.append(prompt)
                 batch_indices.append(idx)
-            # Process batch when size reached
+
             if len(batch_prompts) == batch_size:
                 start_time = time.time()
                 try:
@@ -109,13 +76,11 @@ def run_inference_for_model(
                     logger.error(f"Error during inference for model {model_name}: {e}")
                     outputs = ["Error"] * len(batch_prompts)  
                 elapsed = time.time() - start_time
-                clear_cache_if_needed(accelerator.device)
                 logger.info(f"Processed batch of {len(batch_prompts)} prompts in {elapsed:.2f} seconds")
                 for b_idx, output in zip(batch_indices, outputs):
                     dataset[b_idx].setdefault("inference_results", {})[model_name] = output
                 batch_prompts, batch_indices = [], []
 
-    # Process any remaining prompts in final batch.
     if batch_prompts:
         start_time = time.time()
         outputs = generate_inference(model, tokenizer, batch_prompts, accelerator.device, max_tokens)
@@ -124,7 +89,6 @@ def run_inference_for_model(
         for b_idx, output in zip(batch_indices, outputs):
             dataset[b_idx].setdefault("inference_results", {})[model_name] = output
 
-    # Clean up to free GPU memory.
     del model
     del tokenizer
     torch.cuda.empty_cache()
@@ -159,8 +123,7 @@ def main() -> None:
 
     for model_info in config["models"]:
         output_data = run_inference_for_model(local_model_dir, model_info, dataset, prompt_template, max_tokens, accelerator, use_quantization, batch_size)
-
-    # Save combined inference results.
+    
     save_results(output_data, output_file)
 
 
