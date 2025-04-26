@@ -1,5 +1,3 @@
-#if model interpreting right semantically, even though giving correct answer mathematically
-
 import os
 import json
 import logging
@@ -13,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import pandas as pd
+from scipy.stats import pearsonr
 from sentence_transformers import SentenceTransformer, util
 from data_translator import back_translate_data
 from utils import load_config, download_and_load_model
@@ -37,7 +36,7 @@ def load_backtranslated_file(config: Dict[str, Any]) -> str:
             raise e
     return back_translation_file
 
-def compute_translation_accuracy(back_translation_file: str, config: Dict[str, Any]) -> Dict[str, List[float]]:
+def compute_translation_accuracy(back_translation_file: str, config: Dict[str, Any]) -> None:
     """
     Computes cosine similarity between the original English question and the back-translated question
     for each record.
@@ -60,23 +59,31 @@ def compute_translation_accuracy(back_translation_file: str, config: Dict[str, A
             cos_sims = util.pytorch_cos_sim(emb_orig.unsqueeze(0), emb_backs).squeeze(0)
             for lang, cos_sim in zip(langs, cos_sims.tolist()):
                 similarities_by_lang.setdefault(lang, []).append(cos_sim)
-    return similarities_by_lang
+
+    output_file = config.get("translation_similarities_file")
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(similarities_by_lang, f, indent=2, ensure_ascii=False)
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from typing import Dict, List
 
 def plot_translation_accuracy(similarities_by_lang: Dict[str, List[float]]) -> None:
     """
-    Creates a two-panel figure to visualize translation accuracy across languages.
-    
-    Panel 1: A sorted bar chart for the average cosine similarity per language,
-             with error bars the overall average and median across all languages.
-             
-    Panel 2: A histogram of the average cosine similarities across languages with
-             markers for the overall average and median.
+    Creates two separate figures to visualize translation accuracy across languages.
+
+    Figure 1: A sorted bar chart for the average cosine similarity per language,
+              with error bars and overall mean/median lines.
+
+    Figure 2: A histogram of the average cosine similarities across languages
+              with markers for overall mean and median.
     """
     language_stats = {
-        LANGUAGES[lang]: (np.mean(scores), np.std(scores))
+        LANGUAGES.get(lang, lang).title(): (np.mean(scores), np.std(scores))
         for lang, scores in similarities_by_lang.items()
     }
-    
+
     sorted_languages = sorted(language_stats.keys(), key=lambda lang: language_stats[lang][0])
     means = [language_stats[lang][0] for lang in sorted_languages]
     std_devs = [language_stats[lang][1] for lang in sorted_languages]
@@ -84,32 +91,35 @@ def plot_translation_accuracy(similarities_by_lang: Dict[str, List[float]]) -> N
     overall_mean = np.mean(means)
     overall_median = np.median(means)
 
-    fig, axs = plt.subplots(2, 1, figsize=(28, 24))
-    
-    # --- Panel 1: Sorted Bar Chart with Error Bars ---
-    axs[0].bar(sorted_languages, means, yerr=std_devs, capsize=4, color="skyblue")
-    axs[0].set_xlabel("Language")
-    axs[0].set_ylabel("Average Cosine Similarity")
-    axs[0].set_title("Translation Accuracy per Language\n(Bar Chart Sorted by Average Similarity)")
-    axs[0].tick_params(axis="x", rotation=90)
-    
-    # Overlay horizontal lines for the overall mean and median.
-    axs[0].axhline(overall_mean, color="red", linestyle="--", label=f"Overall Mean: {overall_mean:.2f}")
-    axs[0].axhline(overall_median, color="green", linestyle="--", label=f"Overall Median: {overall_median:.2f}")
-    axs[0].legend()
-    
-    # --- Panel 2: Histogram of Average Similarities ---
-    bins = 20
-    axs[1].hist(means, bins=bins, color="lightgreen", edgecolor="black")
-    axs[1].set_xlabel("Average Cosine Similarity")
-    axs[1].set_ylabel("Number of Languages")
-    axs[1].set_title("Distribution of Average Cosine Similarities Across Languages")
-    axs[1].axvline(overall_mean, color="red", linestyle="--", label=f"Mean: {overall_mean:.2f}")
-    axs[1].axvline(overall_median, color="green", linestyle="--", label=f"Median: {overall_median:.2f}")
-    axs[1].legend()
-    
+    # --- Figure 1: Bar chart ---
+    fig, ax = plt.subplots(figsize=(12, 28))
+    ax.barh(sorted_languages, means, xerr=std_devs, capsize=4, color="skyblue")
+    ax.set_ylabel("Language", fontsize=18)
+    ax.set_xlabel("Average Cosine Similarity", fontsize=18)
+    ax.set_title("Translation Accuracy per Language\n(Bar Chart Sorted by Average Similarity)", fontsize=24)
+    ax.tick_params(axis="x", labelsize=14)
+    ax.tick_params(axis="y", labelsize=14)
+    ax.axvline(overall_mean, color="red", linestyle="--", label=f"Overall Mean: {overall_mean:.2f}")
+    ax.axvline(overall_median, color="green", linestyle="--", label=f"Overall Median: {overall_median:.2f}")
+    ax.legend(fontsize=14)
     plt.tight_layout()
-    plt.savefig("translation_accuracy.png")
+    plt.savefig("results/translation_accuracy_bar.png")
+
+    # --- Figure 2: Histogram ---
+    fig, ax = plt.subplots(figsize=(28, 12))
+    bins = 20
+    ax.hist(means, bins=bins, color="lightgreen", edgecolor="black")
+    ax.set_xlabel("Average Cosine Similarity", fontsize=18)
+    ax.set_ylabel("Number of Languages", fontsize=18)
+    ax.set_title("Distribution of Average Cosine Similarities Across Languages", fontsize=24)
+    ax.tick_params(axis="x", labelsize=14)
+    ax.tick_params(axis="y", labelsize=14)
+    ax.axvline(overall_mean, color="red", linestyle="--", label=f"Mean: {overall_mean:.2f}")
+    ax.axvline(overall_median, color="green", linestyle="--", label=f"Median: {overall_median:.2f}")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig("results/translation_accuracy_hist.png")
+    
 
 def extract_numerical_answers(prompts: List[str],
                              extraction_model: Any,
@@ -179,10 +189,6 @@ def calculate_inference_accuracy(data: List[Dict[str, Any]]) -> Tuple[Dict[str, 
     """
     Compares the extracted final answers (in 'final_answers') with the ground truth (in 'answer').
     Computes overall accuracy per model and per language.
-    
-    Returns:
-        model_accuracy: Mapping of model names to overall accuracy percentage.
-        language_accuracy: Mapping of language codes to accuracy per model.
     """
     model_counts = {}
     model_correct = {}
@@ -219,67 +225,50 @@ def calculate_inference_accuracy(data: List[Dict[str, Any]]) -> Tuple[Dict[str, 
 
 def plot_inference_accuracy(model_accuracy: Dict[str, float], language_accuracy: Dict[str, Dict[str, float]]) -> None:
     """
-    Visualizes inference accuracy:
-      - Overall model accuracy (bar chart).
-      - Accuracy per language for each model (grouped bar chart).
+    Visualizes inference accuracy for each model and language.
     """
-    # Overall model accuracy
     models = list(model_accuracy.keys())
-    accuracies = [model_accuracy[m] for m in models]
+    # 1) Heatmap
+    plot_accuracy_heatmap(language_accuracy, models)
     
-    plt.figure(figsize=(10, 6))
-    plt.bar(models, accuracies, color="green")
-    plt.xlabel("Model")
-    plt.ylabel("Accuracy (%)")
-    plt.title("Overall Inference Accuracy per Model")
-    plt.ylim(0, 100)
-    plt.tick_params(axis="x", rotation=90)
-    plt.tight_layout()
-    plt.savefig("Model_accuracy.png")
+    # 2) Boxplot
+    plot_accuracy_distribution(language_accuracy)
     
-    # Accuracy per language
-    languages = list(language_accuracy.keys())
-    all_models = models
-    x = np.arange(len(languages))
-    width = 0.8 / len(all_models)
-    
-    plt.figure(figsize=(12, 6))
-    for i, model in enumerate(all_models):
-        accs = [language_accuracy[lang].get(model, 0) for lang in languages]
-        plt.bar(x + i * width, accs, width, label=model)
-    plt.xlabel("Language")
-    plt.ylabel("Accuracy (%)")
-    plt.title("Inference Accuracy per Language")
-    plt.xticks(x + width * (len(all_models)-1) / 2, languages, rotation=45)
-    plt.ylim(0, 100)
-    plt.tick_params(axis="x", rotation=90)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("Language_accuracy.png")
+    # 3) Top 10 languages
+    plot_top_languages(language_accuracy)
+
+    # 4) Overall accuracy
+    show_model_overall_accuracy(language_accuracy)
 
 def plot_accuracy_distribution(language_accuracy: Dict[str, Dict[str, float]]):
-    # Melt your nested dict into a long form DataFrame
     records = []
     for lang, accs in language_accuracy.items():
         for model, acc in accs.items():
             records.append({"language": lang, "model": model, "accuracy": acc})
     df_long = pd.DataFrame(records)
+
+    order = df_long.groupby("model")["accuracy"].median().sort_values().index.tolist()
     
     plt.figure(figsize=(10, 6))
-    sns.boxplot(x="model", y="accuracy", data=df_long)
+    sns.boxplot(x="model", y="accuracy", data=df_long, order=order)
+    medians = df_long.groupby('model')['accuracy'].median().reindex(order)
+    for i, m in enumerate(order):
+        plt.text(i, medians[m] + 2, f"{medians[m]:.1f}%", 
+            ha='center', va='bottom', fontweight='bold')
     plt.ylim(0, 100)
     plt.title("Distribution of Per‑Language Accuracy by Model")
     plt.xlabel("Model")
     plt.ylabel("Accuracy (%)")
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig("boxplot_accuracy.png")
+    plt.savefig("results/boxplot_accuracy.png")
 
 def plot_accuracy_heatmap(language_accuracy: Dict[str, Dict[str, float]], models: List[str]):
-    # Build a DataFrame: rows=languages, cols=models
-    df = pd.DataFrame.from_dict(language_accuracy, orient="index", columns=models).fillna(0)
+
+    df = pd.DataFrame.from_dict(language_accuracy, orient="index", columns=models).fillna(0) 
+    df.index = [LANGUAGES.get(lang, lang).title() for lang in df.index]
     
-    plt.figure(figsize=(8, max(6, len(df) * 0.2)))  # height grows with number of langs
+    plt.figure(figsize=(8, max(6, len(df) * 0.2)))
     sns.heatmap(df, cmap="YlGnBu", linewidths=0.5, linecolor="gray",
                 cbar_kws={"label": "Accuracy (%)"})
     plt.title("Inference Accuracy per Language (Heatmap)")
@@ -288,35 +277,151 @@ def plot_accuracy_heatmap(language_accuracy: Dict[str, Dict[str, float]], models
     plt.tight_layout()
     plt.savefig("results/heatmap_accuracy.png")
 
-def plot_top_bottom_languages(language_accuracy: Dict[str, Dict[str, float]], top_n=10):
+def plot_top_languages(language_accuracy: Dict[str, Dict[str, float]], top_n=10):
+
     df = pd.DataFrame.from_dict(language_accuracy, orient="index")
+    df.index = [LANGUAGES.get(lang, lang).title() for lang in df.index]
+
     for model in df.columns:
-        # sort languages by accuracy for this model
-        sorted_langs = df[model].sort_values()
+        top = df[model].sort_values(ascending=False).head(top_n)
         fig, ax = plt.subplots(figsize=(6, 6))
-        # Bottom n
-        sorted_langs.head(top_n).plot.barh(ax=ax, color="salmon")
-        ax.set_title(f"{model} — Bottom {top_n} Languages")
-        ax.set_xlabel("Accuracy (%)")
+        bars = ax.barh(top.index, top.values, color="seagreen")
+
+        ax.invert_yaxis()
+        max_val = top.max()
+        ax.set_xlim(0, max_val * 1.10)
+
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(
+                width + max_val * 0.01,
+                bar.get_y() + bar.get_height() / 2,
+                f"{width:.1f}%",
+                va="center", ha="left", fontsize= 9
+            )
+
+        ax.set_title(f"{model} — Top {top_n} Languages", fontsize=14)
+        ax.set_xlabel("Accuracy (%)", fontsize=12)
+        plt.xlim(0, 100)
         plt.tight_layout()
-        plt.savefig(f"{model}_bottom_{top_n}.png")
+        plt.savefig(f"results/{model}_top_{top_n}.png")
+
+def show_model_overall_accuracy(language_accuracy: Dict[str, Dict[str, float]]):
+    """
+    1) Prints a DataFrame of mean accuracy per model across all languages.
+    2) Plots that same table as a matplotlib table.
+    """
+    df = pd.DataFrame(language_accuracy).T
+    
+    summary = df.mean().sort_values(ascending=False).round(2)
+    
+    fig, ax = plt.subplots(figsize=(6, summary.shape[0]*0.6 + 1))
+    ax.axis("off")
+
+    tbl = ax.table(
+        cellText=[[model, f"{val:.2f}%"] for model, val in summary.items()],
+        colLabels=["Model", "Mean Accuracy (%)"],
+        loc='center'
+    )
+    
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(12)
+    tbl.scale(1, 1.5)
+
+    for (row, _), cell in tbl.get_celld().items():
+        if row == 0:
+            cell.get_text().set_fontweight('bold')
+
+    plt.title("Overall Mean Accuracy per Model", fontsize=14)
+    plt.tight_layout()
+    plt.savefig("results/overall_accuracy.png")
+
+def plot_trans_vs_inf_correlation(back_translation_file: str, final_answers_file: str, model_names: List[str], n_bins: int = 10):
+    # --- 1) Load & reshape back-translation scores ---
+    bt = pd.read_json(back_translation_file)
+    bt = bt.reset_index().rename(columns={'index':'sample_index'})
+    bt_long = bt.melt(
+        id_vars=['sample_index'],
+        var_name='language_code',
+        value_name='cosine_similarity'
+    )
+
+    # --- 2) Load & melt inference results ---
+    inf = pd.read_json(final_answers_file)
+    rows = []
+    for _, row in inf.iterrows():
+        idx, lang = row["sample_index"], row["language_code"]
+        true_ans = str(row["answer"]).strip()
+        for m in model_names:
+            final = str(row["final_answers"].get(m, "")).strip()
+            correct = int(final == true_ans and final != "")
+            rows.append({
+                "sample_index": idx,
+                "language_code": lang,
+                "model": m,
+                "correct": correct
+            })
+    inf_df = pd.DataFrame(rows)
+
+    # --- 3) Merge translation & inference data ---
+    merged = inf_df.merge(
+        bt_long[['sample_index','language_code','cosine_similarity']],
+        on=['sample_index','language_code'],
+        how='left'
+    )
+
+    # --- 4) Loop over models and plot ---
+    for m in model_names:
+        sub = merged[merged["model"] == m].dropna(subset=["cosine_similarity"])
+        if sub.empty:
+            print(f"No data for {m}, skipping.")
+            continue
+
+        # 4a) Compute Pearson correlation
+        r, p = pearsonr(sub["cosine_similarity"], sub["correct"])
+        print(f"{m}: Pearson r = {r:.3f}, p = {p:.3g}")
         
-        # Top n
-        fig, ax = plt.subplots(figsize=(6, 6))
-        sorted_langs.tail(top_n).plot.barh(ax=ax, color="seagreen")
-        ax.set_title(f"{model} — Top {top_n} Languages")
-        ax.set_xlabel("Accuracy (%)")
+        # 4b) Quantile-bin the similarity scores
+        sub['sim_bin'] = pd.qcut(sub['cosine_similarity'], q=n_bins, duplicates='drop')
+
+        # 4c) Compute mean accuracy & sample count per bin
+        grouped = sub.groupby('sim_bin')
+        bin_stats = grouped['correct'].agg(
+            mean_acc='mean',
+            n='size'
+        ).reset_index()
+
+        # 4d) Compute the actual mean cosine similarity per bin
+        bin_stats['x'] = grouped['cosine_similarity'].mean().values
+
+        # 5) Plot mean accuracy with 95% CI error bars
+        plt.figure(figsize=(6, 4))
+        x    = bin_stats['x']
+        y    = bin_stats['mean_acc']
+        yerr = 1.96 * np.sqrt(y * (1 - y) / bin_stats['n'])
+
+        plt.errorbar(x, y, yerr=yerr, fmt='-o', capsize=3)
+        plt.ylim(0, 1)
+        plt.xlabel("Back-Translation Cosine Similarity (binned)")
+        plt.ylabel("Mean Inference Accuracy")
+        plt.title(f"{m}: Accuracy vs Translation Quality\nr={r:.2f}, p={p:.2g}")
         plt.tight_layout()
-        plt.savefig(f"{model}_top_{top_n}.png")
+        plt.savefig(f"results/binned_corr_{m.replace(' ', '_')}.png")
 
 def main() -> None:
     accelerator = Accelerator()
 
     config = load_config("config.json")
+
+    translation_similarities_file = config.get("translation_similarities_file")
+    with open(translation_similarities_file, "r", encoding="utf-8") as f:
+            translation_similarities = json.load(f)
     
     if(config["check_translation_accuracy"]):
-        back_translation_file = load_backtranslated_file(config)
-        translation_similarities = compute_translation_accuracy(back_translation_file, config)
+        if not os.path.exists(translation_similarities_file):
+            os.makedirs(os.path.dirname(translation_similarities_file), exist_ok=True)
+            back_translation_file = load_backtranslated_file(config)
+            compute_translation_accuracy(back_translation_file, config)
         plot_translation_accuracy(translation_similarities)
     
     if(config["check_inference_accuracy"]):
@@ -331,10 +436,12 @@ def main() -> None:
             inference_data = json.load(f)
         
         model_accuracy, language_accuracy = calculate_inference_accuracy(inference_data)
-        plot_accuracy_distribution(language_accuracy)
-        plot_accuracy_heatmap(language_accuracy, list(model_accuracy.keys()))
-        plot_top_bottom_languages(language_accuracy)
-        #plot_inference_accuracy(model_accuracy, language_accuracy)
+        plot_trans_vs_inf_correlation(
+            translation_similarities_file,
+            final_output_file,
+            list(model_accuracy.keys()),
+        )
+        plot_inference_accuracy(model_accuracy, language_accuracy)
 
 if __name__ == "__main__":
     main()

@@ -26,9 +26,10 @@
     "sentence_transformer" : "sentence-transformers/all-MiniLM-L6-v2",
     "extractor_model_path" : "google/flan-t5-large",
 
-    "check_translation_accuracy" : false,
+    "check_translation_accuracy" : true,
     "check_inference_accuracy" : true,
     "inference_file" : "data/gsm8k_inference_results_all_models.json",
-    "inference_answers_file" : "data/inference_extracted_answers.json"
+    "inference_answers_file" : "data/inference_extracted_answers.json",
+    "translation_similarities_file" : "data/translation_similarities_file.json"
   }
   
